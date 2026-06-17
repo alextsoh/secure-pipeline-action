@@ -1,5 +1,5 @@
 name: 'Secure Image Pipeline'
-description: 'SBOM generation, vulnerability scan, Cosign signing and dashboard reporting a built container image.'
+description: 'SBOM generation, vulnerability scan, Cosign signing and dashboard reporting for an already-built container image.'
 
 inputs:
   image:
@@ -44,6 +44,52 @@ runs:
         severity-cutoff: critical
         output-format: json
         output-file: vulnerability-report.json
+
+    - name: Cross-reference CISA KEV catalog
+      if: always()
+      shell: python3 {0}
+      run: |
+        import json, urllib.request, os
+
+        try:
+            url = 'https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json'
+            with urllib.request.urlopen(url, timeout=15) as r:
+                kev = json.load(r)
+            kev_ids = {v['cveID']: v for v in kev['vulnerabilities']}
+        except Exception as e:
+            print(f'KEV catalog unavailable: {e}')
+            json.dump([], open('kev-matches.json', 'w'))
+            exit(0)
+
+        if not os.path.exists('vulnerability-report.json'):
+            json.dump([], open('kev-matches.json', 'w'))
+            exit(0)
+
+        with open('vulnerability-report.json') as f:
+            grype = json.load(f)
+
+        matches = []
+        for match in grype.get('matches', []):
+            cve_id = match.get('vulnerability', {}).get('id', '')
+            if cve_id in kev_ids:
+                entry = kev_ids[cve_id]
+                matches.append({
+                    'cve':             cve_id,
+                    'package':         match.get('artifact', {}).get('name', ''),
+                    'version':         match.get('artifact', {}).get('version', ''),
+                    'severity':        match.get('vulnerability', {}).get('severity', ''),
+                    'date_added':      entry.get('dateAdded', ''),
+                    'due_date':        entry.get('dueDate', ''),
+                    'required_action': entry.get('requiredAction', ''),
+                    'product':         entry.get('product', ''),
+                })
+
+        with open('kev-matches.json', 'w') as f:
+            json.dump(matches, f)
+
+        print(f'KEV matches found: {len(matches)}')
+        for m in matches:
+            print(f"  !! {m['cve']} in {m['package']}@{m['version']} — KEV since {m['date_added']}")
 
     - name: Install Cosign
       uses: sigstore/cosign-installer@v3
@@ -93,6 +139,7 @@ runs:
             'sbom':                 b64('sbom.spdx.json'),
             'vulnerability_report': b64('vulnerability-report.txt'),
             'vulnerability_json':   b64('vulnerability-report.json'),
+            'kev_matches':          b64('kev-matches.json'),
         }
 
         with open('/tmp/dashboard_payload.json', 'w') as f:
