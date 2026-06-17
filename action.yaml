@@ -70,14 +70,18 @@ runs:
 
         matches = []
         for match in grype.get('matches', []):
-            cve_id = match.get('vulnerability', {}).get('id', '')
-            if cve_id in kev_ids:
-                entry = kev_ids[cve_id]
+            vuln = match.get('vulnerability', {})
+            # Grype's primary id may be a GHSA; the CVE is in relatedVulnerabilities.
+            candidate_ids = [vuln.get('id', '')]
+            candidate_ids += [r.get('id', '') for r in match.get('relatedVulnerabilities', [])]
+            kev_id = next((i for i in candidate_ids if i in kev_ids), None)
+            if kev_id:
+                entry = kev_ids[kev_id]
                 matches.append({
-                    'cve':             cve_id,
+                    'cve':             kev_id,
                     'package':         match.get('artifact', {}).get('name', ''),
                     'version':         match.get('artifact', {}).get('version', ''),
-                    'severity':        match.get('vulnerability', {}).get('severity', ''),
+                    'severity':        vuln.get('severity', ''),
                     'date_added':      entry.get('dateAdded', ''),
                     'due_date':        entry.get('dueDate', ''),
                     'required_action': entry.get('requiredAction', ''),
@@ -147,7 +151,7 @@ runs:
 
         r = subprocess.run([
             'curl', '-fsSL', '-X', 'POST',
-            f"{os.environ['DASHBOARD_URL']}/api/webhook",
+            f"{os.environ['DASHBOARD_URL'].rstrip('/')}/api/webhook",
             '-H', 'Content-Type: application/json',
             '--data', '@/tmp/dashboard_payload.json',
         ], capture_output=True, text=True)
