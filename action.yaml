@@ -12,6 +12,10 @@ inputs:
     description: 'Component name for matrix builds (e.g. matrix.service). Leave empty for single-image pipelines.'
     required: false
     default: ''
+  tags:
+    description: 'Image tag(s) for display, comma-separated (e.g. v1.2.3 or the image_tag you already computed). Registry-agnostic.'
+    required: false
+    default: ''
   fail-on-critical:
     description: 'Fail the build if critical vulnerabilities are found (true/false)'
     required: false
@@ -123,6 +127,7 @@ runs:
         WORKFLOW: ${{ github.workflow }}
         WORKFLOW_REF: ${{ github.workflow_ref }}
         RUNNER_OS: ${{ runner.os }}
+        TAGS: ${{ inputs.tags }}
       run: |
         import json, os, subprocess, sys
 
@@ -159,6 +164,7 @@ runs:
             'runner_os':            os.environ.get('RUNNER_OS', ''),
             'branch':               os.environ['BRANCH'],
             'image_name':           image_name,
+            'image_tags':           os.environ.get('TAGS', '').strip(),
             'image_digest':         digest,
             'signed':               os.environ.get('SIGN_STATUS') == 'success',
             'sign_status':          os.environ.get('SIGN_STATUS', ''),
